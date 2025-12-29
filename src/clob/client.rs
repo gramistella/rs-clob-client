@@ -379,6 +379,12 @@ pub struct Config {
     #[builder(default = Duration::from_secs(5))]
     /// How often the [`Client`] will automatically submit heartbeats. The default is five (5) seconds.
     heartbeat_interval: Duration,
+    /// Optional HTTP proxy URL for routing requests through a proxy server.
+    ///
+    /// Supports HTTP, HTTPS, and SOCKS5 proxies.
+    /// Example: `"http://user:pass@proxy.example.com:8080"` or `"socks5://127.0.0.1:1080"`
+    #[builder(into)]
+    proxy: Option<String>,
 }
 
 /// The default geoblock API host (separate from CLOB host)
@@ -1185,7 +1191,15 @@ impl Client<Unauthenticated> {
         headers.insert("Connection", HeaderValue::from_static("keep-alive"));
         headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
-        let client = ReqwestClient::builder().default_headers(headers).build()?;
+        let mut builder = ReqwestClient::builder().default_headers(headers);
+
+        if let Some(proxy_url) = &config.proxy {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|e| Error::validation(format!("invalid proxy URL '{proxy_url}': {e}")))?;
+            builder = builder.proxy(proxy);
+        }
+
+        let client = builder.build()?;
 
         let geoblock_host = Url::parse(
             config
