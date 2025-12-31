@@ -428,19 +428,14 @@ mod market_channel {
 }
 
 mod user_channel {
-    use polymarket_client_sdk::auth::Credentials;
     use polymarket_client_sdk::clob::types::Side;
     use polymarket_client_sdk::clob::ws::types::response::{OrderMessageType, TradeMessageStatus};
     use rust_decimal_macros::dec;
     use tokio::time::sleep;
 
     use super::*;
-    use crate::common::{API_KEY, PASSPHRASE, SECRET};
-    use crate::payloads::OTHER_ASSET_ID_STR;
-
-    fn test_credentials() -> Credentials {
-        Credentials::new(API_KEY, SECRET.to_owned(), PASSPHRASE.to_owned())
-    }
+    use crate::common::test_credentials;
+    use crate::payloads::OTHER_ASSET_ID;
 
     #[tokio::test]
     async fn subscribe_user_events_receives_orders() {
