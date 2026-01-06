@@ -193,7 +193,7 @@ mod clob_proxy {
 
 #[cfg(feature = "ws")]
 mod ws_proxy {
-    use polymarket_client_sdk::clob::ws::Config;
+    use polymarket_client_sdk::ws::config::Config;
 
     #[test]
     fn default_config_has_no_proxy() {
@@ -238,7 +238,8 @@ mod ws_proxy_connection {
     use std::time::Duration;
 
     use futures_util::{SinkExt as _, StreamExt as _};
-    use polymarket_client_sdk::clob::ws::{Client, Config};
+    use polymarket_client_sdk::clob::ws::Client;
+    use polymarket_client_sdk::ws::config::Config;
     use serde_json::json;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::TcpListener;
@@ -896,7 +897,7 @@ mod ws_proxy_connection {
 /// Tests for RTDS WebSocket proxy support.
 #[cfg(feature = "rtds")]
 mod rtds_proxy_config {
-    use polymarket_client_sdk::rtds::Config;
+    use polymarket_client_sdk::ws::config::Config;
 
     #[test]
     fn default_config_has_no_proxy() {
@@ -941,7 +942,8 @@ mod rtds_proxy_connection {
     use std::time::Duration;
 
     use futures_util::{SinkExt as _, StreamExt as _};
-    use polymarket_client_sdk::rtds::{Client, Config};
+    use polymarket_client_sdk::rtds::Client;
+    use polymarket_client_sdk::ws::config::Config;
     use serde_json::json;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::TcpListener;
@@ -1625,7 +1627,7 @@ mod rtds_proxy_connection {
 
     #[tokio::test]
     async fn rtds_connection_state_transitions_to_connected() {
-        use polymarket_client_sdk::rtds::ConnectionState;
+        use polymarket_client_sdk::ws::connection::ConnectionState;
 
         let rtds_server = MockRtdsServer::start().await;
         let config = Config::default();

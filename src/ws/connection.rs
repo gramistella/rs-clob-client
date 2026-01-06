@@ -14,7 +14,9 @@ use serde::de::DeserializeOwned;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{interval, sleep, timeout};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls, connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream, client_async_tls, connect_async, tungstenite::Message,
+};
 use url::Url;
 
 use super::config::Config;
