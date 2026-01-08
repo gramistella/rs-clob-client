@@ -1,11 +1,11 @@
+#![cfg(feature = "rfq")]
 #![allow(clippy::print_stdout, reason = "Examples are okay to print to stdout")]
 
 use std::str::FromStr as _;
 
 use alloy::signers::Signer as _;
 use alloy::signers::local::LocalSigner;
-use polymarket_client_sdk::auth::builder::Config as BuilderConfig;
-use polymarket_client_sdk::clob::types::request::TradesRequest;
+use polymarket_client_sdk::clob::types::{RfqRequestsRequest, RfqSortBy, RfqSortDir, RfqState};
 use polymarket_client_sdk::clob::{Client, Config};
 use polymarket_client_sdk::{POLYGON, PRIVATE_KEY_VAR};
 
@@ -19,20 +19,20 @@ async fn main() -> anyhow::Result<()> {
         .authenticate()
         .await?;
 
-    // Save these credentials for subsequent calls with the builder client
-    let builder_credentials = client.create_builder_api_key().await?;
-    let config = BuilderConfig::local(builder_credentials);
+    let request = RfqRequestsRequest::builder()
+        .state(RfqState::Active)
+        .limit(10)
+        .offset("MA==")
+        .sort_by(RfqSortBy::Created)
+        .sort_dir(RfqSortDir::Desc)
+        .build();
 
-    let client = client.promote_to_builder(config).await?;
-
-    let keys = client.builder_api_keys().await?;
-    println!("{keys:#?}");
-
-    let request = TradesRequest::builder().asset_id("asset").build();
+    let requests = client.requests(&request, None).await?;
     println!(
-        "builder_trades -- {:?}",
-        client.builder_trades(&request, None).await?
+        "count: {}, next_cursor: {}",
+        requests.count, requests.next_cursor
     );
+    println!("{:#?}", requests.data);
 
     Ok(())
 }
