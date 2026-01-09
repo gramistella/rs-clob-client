@@ -157,6 +157,7 @@ mod bridge_proxy {
     }
 }
 
+#[cfg(feature = "clob")]
 mod clob_proxy {
     use polymarket_client_sdk::clob::{Client, Config};
 
@@ -232,7 +233,7 @@ mod ws_proxy {
     }
 }
 
-#[cfg(feature = "ws")]
+#[cfg(all(feature = "ws", feature = "clob"))]
 mod ws_proxy_connection {
     use std::net::SocketAddr;
     use std::time::Duration;
@@ -276,11 +277,10 @@ mod ws_proxy_connection {
                                 let response = json!({
                                     "event_type": "book",
                                     "asset_id": ASSET_ID,
-                                    "market": "0xabc",
+                                    "market": "0x5f65177b394277fd294cd75650044e32ba009a95022d88a0c1d565897d72f8f1",
                                     "bids": [{"price": "0.5", "size": "100"}],
                                     "asks": [{"price": "0.6", "size": "100"}],
-                                    "timestamp": "1234567890",
-                                    "hash": "0xdef"
+                                    "timestamp": "1234567890"
                                 });
                                 if write
                                     .send(Message::Text(response.to_string().into()))
