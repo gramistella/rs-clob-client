@@ -435,7 +435,7 @@ mod user_channel {
 
     use super::*;
     use crate::common::test_credentials;
-    use crate::payloads::OTHER_ASSET_ID;
+    use crate::payloads::OTHER_ASSET_ID_STR;
 
     #[tokio::test]
     async fn subscribe_user_events_receives_orders() {

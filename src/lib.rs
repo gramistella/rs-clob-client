@@ -12,6 +12,12 @@ pub mod data;
 pub mod error;
 #[cfg(feature = "gamma")]
 pub mod gamma;
+#[cfg(any(
+    feature = "bridge",
+    feature = "clob",
+    feature = "data",
+    feature = "gamma"
+))]
 mod http;
 #[cfg(any(feature = "ws", feature = "rtds"))]
 pub mod proxy;

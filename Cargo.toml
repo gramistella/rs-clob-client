@@ -31,7 +31,13 @@ bridge = []
 ctf = ["alloy/contract", "alloy/providers"]
 rfq = []
 tracing = ["dep:tracing", "dep:serde_ignored", "dep:serde_path_to_error"]
-ws = ["dep:backoff", "dep:bitflags", "dep:tokio", "dep:tokio-tungstenite", "dep:tokio-socks"]
+ws = [
+    "dep:backoff",
+    "dep:bitflags",
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+    "dep:tokio-socks",
+]
 rtds = ["dep:backoff", "dep:tokio", "dep:tokio-tungstenite", "dep:tokio-socks"]
 heartbeats = ["dep:tokio", "dep:tokio-util"]
 

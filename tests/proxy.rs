@@ -240,6 +240,7 @@ mod ws_proxy_connection {
 
     use futures_util::{SinkExt as _, StreamExt as _};
     use polymarket_client_sdk::clob::ws::Client;
+    use polymarket_client_sdk::types::U256;
     use polymarket_client_sdk::ws::config::Config;
     use serde_json::json;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -247,7 +248,7 @@ mod ws_proxy_connection {
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Message;
 
-    const ASSET_ID: &str = "123456789";
+    const ASSET_ID: U256 = U256::from_limbs([123_456_789, 0, 0, 0]);
 
     /// Mock WebSocket server for proxy tests.
     struct MockWsServer {
@@ -276,7 +277,7 @@ mod ws_proxy_connection {
                                 // Echo back a book message for any subscription
                                 let response = json!({
                                     "event_type": "book",
-                                    "asset_id": ASSET_ID,
+                                    "asset_id": ASSET_ID.to_string(),
                                     "market": "0x5f65177b394277fd294cd75650044e32ba009a95022d88a0c1d565897d72f8f1",
                                     "bids": [{"price": "0.5", "size": "100"}],
                                     "asks": [{"price": "0.6", "size": "100"}],
@@ -497,9 +498,7 @@ mod ws_proxy_connection {
         let config = Config::with_proxy(proxy.url());
         let client = Client::new(&ws_server.base_url(), config).unwrap();
 
-        let stream = client
-            .subscribe_orderbook(vec![ASSET_ID.to_owned()])
-            .unwrap();
+        let stream = client.subscribe_orderbook(vec![ASSET_ID]).unwrap();
         let mut stream = Box::pin(stream);
 
         // Wait for a message
@@ -518,9 +517,7 @@ mod ws_proxy_connection {
         let config = Config::with_proxy(proxy.url());
         let client = Client::new(&ws_server.base_url(), config).unwrap();
 
-        let stream = client
-            .subscribe_orderbook(vec![ASSET_ID.to_owned()])
-            .unwrap();
+        let stream = client.subscribe_orderbook(vec![ASSET_ID]).unwrap();
         let mut stream = Box::pin(stream);
 
         // Wait for a message
@@ -792,9 +789,7 @@ mod ws_proxy_connection {
         let config = Config::with_proxy(proxy.url_with_auth("testuser", "testpass"));
         let client = Client::new(&ws_server.base_url(), config).unwrap();
 
-        let stream = client
-            .subscribe_orderbook(vec![ASSET_ID.to_owned()])
-            .unwrap();
+        let stream = client.subscribe_orderbook(vec![ASSET_ID]).unwrap();
         let mut stream = Box::pin(stream);
 
         let result = timeout(Duration::from_secs(5), stream.next()).await;
@@ -815,9 +810,7 @@ mod ws_proxy_connection {
         let config = Config::with_proxy(proxy.url_with_auth("testuser", "testpass"));
         let client = Client::new(&ws_server.base_url(), config).unwrap();
 
-        let stream = client
-            .subscribe_orderbook(vec![ASSET_ID.to_owned()])
-            .unwrap();
+        let stream = client.subscribe_orderbook(vec![ASSET_ID]).unwrap();
         let mut stream = Box::pin(stream);
 
         let result = timeout(Duration::from_secs(5), stream.next()).await;
@@ -838,9 +831,7 @@ mod ws_proxy_connection {
         let config = Config::with_proxy(proxy.url());
         let client = Client::new(&ws_server.base_url(), config).unwrap();
 
-        let stream = client
-            .subscribe_orderbook(vec![ASSET_ID.to_owned()])
-            .unwrap();
+        let stream = client.subscribe_orderbook(vec![ASSET_ID]).unwrap();
         let mut stream = Box::pin(stream);
 
         // Should timeout because proxy returns 403 and connection fails
@@ -860,9 +851,7 @@ mod ws_proxy_connection {
         let config = Config::with_proxy("ftp://proxy.example.com:21");
         let client = Client::new(&ws_server.base_url(), config).unwrap();
 
-        let stream = client
-            .subscribe_orderbook(vec![ASSET_ID.to_owned()])
-            .unwrap();
+        let stream = client.subscribe_orderbook(vec![ASSET_ID]).unwrap();
         let mut stream = Box::pin(stream);
 
         // Should timeout because proxy scheme is unsupported
@@ -882,9 +871,7 @@ mod ws_proxy_connection {
         let config = Config::with_proxy("socks5://127.0.0.1:59999");
         let client = Client::new(&ws_server.base_url(), config).unwrap();
 
-        let stream = client
-            .subscribe_orderbook(vec![ASSET_ID.to_owned()])
-            .unwrap();
+        let stream = client.subscribe_orderbook(vec![ASSET_ID]).unwrap();
         let mut stream = Box::pin(stream);
 
         // Should timeout because proxy is unreachable

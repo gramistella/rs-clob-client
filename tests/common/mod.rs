@@ -129,12 +129,14 @@ pub fn to_decimal(value: U256) -> Decimal {
     Decimal::from_str_exact(&value.to_string()).unwrap()
 }
 
+#[must_use]
 pub fn test_signer() -> LocalSigner<SigningKey> {
     LocalSigner::from_str(PRIVATE_KEY)
         .unwrap()
         .with_chain_id(Some(POLYGON))
 }
 
+#[must_use]
 pub fn test_credentials() -> polymarket_client_sdk::auth::Credentials {
     polymarket_client_sdk::auth::Credentials::new(API_KEY, SECRET.to_owned(), PASSPHRASE.to_owned())
 }

@@ -29,10 +29,7 @@ use std::future::Future;
 
 use async_stream::try_stream;
 use futures::Stream;
-use reqwest::{
-    Client as ReqwestClient, Method,
-    header::{HeaderMap, HeaderValue},
-};
+use reqwest::{Client as ReqwestClient, Method};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 #[cfg(feature = "tracing")]
