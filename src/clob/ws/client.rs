@@ -73,7 +73,7 @@ struct ClientInner<S: State> {
     /// Base endpoint without channel suffix (e.g. `wss://...`)
     base_endpoint: String,
     /// Resources for each WebSocket channel (lazily initialized)
-    channels: DashMap<ChannelType, ChannelHandles>,
+    channels: DashMap<ChannelType, ChannelResources>,
 }
 
 impl Client<Unauthenticated> {
@@ -153,8 +153,8 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<BookUpdate>>> {
-        let subscriptions = self.market_subscriptions()?;
-        let stream = subscriptions.as_ref().subscribe_market(asset_ids)?;
+        let subscriptions = self.inner.get_or_create_channel(ChannelType::Market)?;
+        let stream = subscriptions.subscriptions.subscribe_market(asset_ids)?;
 
         Ok(stream.filter_map(|msg_result| async move {
             match msg_result {
@@ -182,8 +182,11 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<LastTradePrice>>> {
-        let subscriptions = self.market_subscriptions()?;
-        let stream = subscriptions.as_ref().subscribe_market(asset_ids)?;
+        let stream = self
+            .inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
+            .subscribe_market(asset_ids)?;
 
         Ok(stream.filter_map(async |msg_result| match msg_result {
             Ok(WsMessage::LastTradePrice(last_trade_price)) => Some(Ok(last_trade_price)),
@@ -210,8 +213,11 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<PriceChange>>> {
-        let subscriptions = self.market_subscriptions()?;
-        let stream = subscriptions.as_ref().subscribe_market(asset_ids)?;
+        let stream = self
+            .inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
+            .subscribe_market(asset_ids)?;
 
         Ok(stream.filter_map(async |msg_result| match msg_result {
             Ok(WsMessage::PriceChange(price)) => Some(Ok(price)),
@@ -265,9 +271,10 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<BestBidAsk>>> {
-        let subscriptions = self.market_subscriptions()?;
-        let stream = subscriptions
-            .as_ref()
+        let stream = self
+            .inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
             .subscribe_market_with_options(asset_ids, true)?;
 
         Ok(stream.filter_map(async |msg_result| match msg_result {
@@ -284,9 +291,10 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<NewMarket>>> {
-        let subscriptions = self.market_subscriptions()?;
-        let stream = subscriptions
-            .as_ref()
+        let stream = self
+            .inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
             .subscribe_market_with_options(asset_ids, true)?;
 
         Ok(stream.filter_map(async |msg_result| match msg_result {
@@ -303,9 +311,10 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<MarketResolved>>> {
-        let subscriptions = self.market_subscriptions()?;
-        let stream = subscriptions
-            .as_ref()
+        let stream = self
+            .inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
             .subscribe_market_with_options(asset_ids, true)?;
 
         Ok(stream.filter_map(|msg_result| async move {
@@ -344,7 +353,7 @@ impl<S: State> Client<S> {
         self.inner
             .channels
             .iter()
-            .map(|entry| entry.value().resources.subscriptions.subscription_count())
+            .map(|entry| entry.value().subscriptions.subscription_count())
             .sum()
     }
 
@@ -353,7 +362,10 @@ impl<S: State> Client<S> {
     /// This decrements the reference count for each asset. The server unsubscribe
     /// is only sent when no other subscriptions are using those assets.
     pub fn unsubscribe_orderbook(&self, asset_ids: &[U256]) -> Result<()> {
-        self.market_subscriptions()?.unsubscribe_market(asset_ids)
+        self.inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
+            .unsubscribe_market(asset_ids)
     }
 
     /// Unsubscribe from price changes for specific assets.
@@ -361,7 +373,10 @@ impl<S: State> Client<S> {
     /// This decrements the reference count for each asset. The server unsubscribe
     /// is only sent when no other subscriptions are using those assets.
     pub fn unsubscribe_prices(&self, asset_ids: &[U256]) -> Result<()> {
-        self.market_subscriptions()?.unsubscribe_market(asset_ids)
+        self.inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
+            .unsubscribe_market(asset_ids)
     }
 
     /// Unsubscribe from midpoint updates for specific assets.
@@ -369,12 +384,10 @@ impl<S: State> Client<S> {
     /// This decrements the reference count for each asset. The server unsubscribe
     /// is only sent when no other subscriptions are using those assets.
     pub fn unsubscribe_midpoints(&self, asset_ids: &[U256]) -> Result<()> {
-        self.market_subscriptions()?.unsubscribe_market(asset_ids)
-    }
-
-    fn market_subscriptions(&self) -> Result<Arc<SubscriptionManager>> {
-        let channel = self.inner.get_or_create_channel(ChannelType::Market)?;
-        Ok(Arc::clone(&channel.resources.subscriptions))
+        self.inner
+            .get_or_create_channel(ChannelType::Market)?
+            .subscriptions
+            .unsubscribe_market(asset_ids)
     }
 }
 
@@ -490,7 +503,7 @@ impl<K: AuthKind> Client<Authenticated<K>> {
 
     fn user_subscriptions(&self) -> Result<Arc<SubscriptionManager>> {
         let channel = self.inner.get_or_create_channel(ChannelType::User)?;
-        Ok(Arc::clone(&channel.resources.subscriptions))
+        Ok(Arc::clone(&channel.subscriptions))
     }
 
     /// Unsubscribe from user's order updates for specific markets.
@@ -541,10 +554,10 @@ impl<S: State> ClientInner<S> {
     fn get_or_create_channel(
         &self,
         channel_type: ChannelType,
-    ) -> Result<dashmap::mapref::one::Ref<'_, ChannelType, ChannelHandles>> {
+    ) -> Result<dashmap::mapref::one::Ref<'_, ChannelType, ChannelResources>> {
         if !self.channels.contains_key(&channel_type) {
             let endpoint = channel_endpoint(&self.base_endpoint, channel_type);
-            let handles = ChannelHandles::new(endpoint, self.config.clone())?;
+            let handles = ChannelResources::new(endpoint, self.config.clone())?;
             self.channels.insert(channel_type, handles);
         }
         Ok(self
@@ -556,7 +569,7 @@ impl<S: State> ClientInner<S> {
     fn channel(
         &self,
         channel_type: ChannelType,
-    ) -> Option<dashmap::mapref::one::Ref<'_, ChannelType, ChannelHandles>> {
+    ) -> Option<dashmap::mapref::one::Ref<'_, ChannelType, ChannelResources>> {
         self.channels.get(&channel_type)
     }
 }
@@ -567,12 +580,7 @@ struct ChannelResources {
     subscriptions: Arc<SubscriptionManager>,
 }
 
-/// Handles for a specific WebSocket channel.
-struct ChannelHandles {
-    resources: ChannelResources,
-}
-
-impl ChannelHandles {
+impl ChannelResources {
     fn new(endpoint: String, config: Config) -> Result<Self> {
         let interest = Arc::new(InterestTracker::new());
         let connection = ConnectionManager::new(endpoint, config, Arc::clone(&interest))?;
@@ -581,15 +589,13 @@ impl ChannelHandles {
         subscriptions.start_reconnection_handler();
 
         Ok(Self {
-            resources: ChannelResources {
-                connection,
-                subscriptions,
-            },
+            connection,
+            subscriptions,
         })
     }
 
     fn connection_state(&self) -> ConnectionState {
-        self.resources.connection.state()
+        self.connection.state()
     }
 }
 
