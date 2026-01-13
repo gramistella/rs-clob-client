@@ -413,6 +413,15 @@ impl SubscriptionManager {
         self.active_subs.len()
     }
 
+    /// Check if there are any subscriptions for a specific channel type.
+    #[must_use]
+    pub fn has_subscriptions(&self, channel: ChannelType) -> bool {
+        match channel {
+            ChannelType::Market => !self.subscribed_assets.is_empty(),
+            ChannelType::User => !self.subscribed_markets.is_empty(),
+        }
+    }
+
     /// Unsubscribe from market data for specific assets.
     ///
     /// This decrements the reference count for each asset. Only sends an unsubscribe

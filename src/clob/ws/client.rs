@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use async_stream::try_stream;
-use dashmap::DashMap;
+use dashmap::mapref::one::{Ref, RefMut};
+use dashmap::{DashMap, Entry};
 use futures::Stream;
 use futures::StreamExt as _;
 
@@ -332,11 +333,10 @@ impl<S: State> Client<S> {
     /// initialized yet (no subscriptions have been made).
     #[must_use]
     pub fn connection_state(&self, channel_type: ChannelType) -> ConnectionState {
-        self.inner
-            .channel(channel_type)
-            .map_or(ConnectionState::Disconnected, |channel| {
-                channel.connection_state()
-            })
+        self.inner.channel(channel_type).as_deref().map_or(
+            ConnectionState::Disconnected,
+            ChannelResources::connection_state,
+        )
     }
 
     /// Check if the WebSocket connection is established for a specific channel.
@@ -362,10 +362,24 @@ impl<S: State> Client<S> {
     /// This decrements the reference count for each asset. The server unsubscribe
     /// is only sent when no other subscriptions are using those assets.
     pub fn unsubscribe_orderbook(&self, asset_ids: &[U256]) -> Result<()> {
-        self.inner
-            .get_or_create_channel(ChannelType::Market)?
-            .subscriptions
-            .unsubscribe_market(asset_ids)
+        match self.inner.channels.get(&ChannelType::Market) {
+            None => Ok(()),
+            Some(channel) => {
+                channel.subscriptions.unsubscribe_market(asset_ids)?;
+                drop(channel); // Release the Ref before acquiring Entry
+
+                // Atomically check and remove channel if empty
+                if let Entry::Occupied(entry) = self.inner.channels.entry(ChannelType::Market)
+                    && !entry
+                        .get()
+                        .subscriptions
+                        .has_subscriptions(ChannelType::Market)
+                {
+                    entry.remove();
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Unsubscribe from price changes for specific assets.
@@ -373,10 +387,7 @@ impl<S: State> Client<S> {
     /// This decrements the reference count for each asset. The server unsubscribe
     /// is only sent when no other subscriptions are using those assets.
     pub fn unsubscribe_prices(&self, asset_ids: &[U256]) -> Result<()> {
-        self.inner
-            .get_or_create_channel(ChannelType::Market)?
-            .subscriptions
-            .unsubscribe_market(asset_ids)
+        self.unsubscribe_orderbook(asset_ids)
     }
 
     /// Unsubscribe from midpoint updates for specific assets.
@@ -384,10 +395,7 @@ impl<S: State> Client<S> {
     /// This decrements the reference count for each asset. The server unsubscribe
     /// is only sent when no other subscriptions are using those assets.
     pub fn unsubscribe_midpoints(&self, asset_ids: &[U256]) -> Result<()> {
-        self.inner
-            .get_or_create_channel(ChannelType::Market)?
-            .subscriptions
-            .unsubscribe_market(asset_ids)
+        self.unsubscribe_orderbook(asset_ids)
     }
 }
 
@@ -415,17 +423,10 @@ impl<K: AuthKind> Client<Authenticated<K>> {
         &self,
         markets: Vec<B256>,
     ) -> Result<impl Stream<Item = Result<WsMessage>>> {
-        let subscriptions = self.user_subscriptions()?;
-        let stream = subscriptions
-            .as_ref()
-            .subscribe_user(markets, &self.inner.state.credentials)?;
-
-        // Wrap stream to keep subscriptions Arc alive
-        Ok(try_stream! {
-            for await msg in stream {
-                yield msg?;
-            }
-        })
+        self.inner
+            .get_or_create_channel(ChannelType::User)?
+            .subscriptions
+            .subscribe_user(markets, &self.inner.state.credentials)
     }
 
     /// Subscribes to real-time order status updates for the authenticated user.
@@ -498,12 +499,24 @@ impl<K: AuthKind> Client<Authenticated<K>> {
     /// This decrements the reference count for each market. The server unsubscribe
     /// is only sent when no other subscriptions are using those markets.
     pub fn unsubscribe_user_events(&self, markets: &[B256]) -> Result<()> {
-        self.user_subscriptions()?.unsubscribe_user(markets)
-    }
+        match self.inner.channels.get(&ChannelType::User) {
+            None => Ok(()),
+            Some(channel) => {
+                channel.subscriptions.unsubscribe_user(markets)?;
+                drop(channel); // Release the Ref before acquiring Entry
 
-    fn user_subscriptions(&self) -> Result<Arc<SubscriptionManager>> {
-        let channel = self.inner.get_or_create_channel(ChannelType::User)?;
-        Ok(Arc::clone(&channel.subscriptions))
+                // Atomically check and remove channel if empty
+                if let Entry::Occupied(entry) = self.inner.channels.entry(ChannelType::User)
+                    && !entry
+                        .get()
+                        .subscriptions
+                        .has_subscriptions(ChannelType::User)
+                {
+                    entry.remove();
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Unsubscribe from user's order updates for specific markets.
@@ -554,22 +567,17 @@ impl<S: State> ClientInner<S> {
     fn get_or_create_channel(
         &self,
         channel_type: ChannelType,
-    ) -> Result<dashmap::mapref::one::Ref<'_, ChannelType, ChannelResources>> {
-        if !self.channels.contains_key(&channel_type) {
-            let endpoint = channel_endpoint(&self.base_endpoint, channel_type);
-            let handles = ChannelResources::new(endpoint, self.config.clone())?;
-            self.channels.insert(channel_type, handles);
-        }
-        Ok(self
-            .channels
-            .get(&channel_type)
-            .expect("channel should exist after insertion"))
+    ) -> Result<Ref<'_, ChannelType, ChannelResources>> {
+        self.channels
+            .entry(channel_type)
+            .or_try_insert_with(|| {
+                let endpoint = channel_endpoint(&self.base_endpoint, channel_type);
+                ChannelResources::new(endpoint, self.config.clone())
+            })
+            .map(RefMut::downgrade)
     }
 
-    fn channel(
-        &self,
-        channel_type: ChannelType,
-    ) -> Option<dashmap::mapref::one::Ref<'_, ChannelType, ChannelResources>> {
+    fn channel(&self, channel_type: ChannelType) -> Option<Ref<'_, ChannelType, ChannelResources>> {
         self.channels.get(&channel_type)
     }
 }
