@@ -183,11 +183,8 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<LastTradePrice>>> {
-        let stream = self
-            .inner
-            .get_or_create_channel(ChannelType::Market)?
-            .subscriptions
-            .subscribe_market(asset_ids)?;
+        let resources = self.inner.get_or_create_channel(ChannelType::Market)?;
+        let stream = resources.subscriptions.subscribe_market(asset_ids)?;
 
         Ok(stream.filter_map(async |msg_result| match msg_result {
             Ok(WsMessage::LastTradePrice(last_trade_price)) => Some(Ok(last_trade_price)),
@@ -214,11 +211,8 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<PriceChange>>> {
-        let stream = self
-            .inner
-            .get_or_create_channel(ChannelType::Market)?
-            .subscriptions
-            .subscribe_market(asset_ids)?;
+        let resources = self.inner.get_or_create_channel(ChannelType::Market)?;
+        let stream = resources.subscriptions.subscribe_market(asset_ids)?;
 
         Ok(stream.filter_map(async |msg_result| match msg_result {
             Ok(WsMessage::PriceChange(price)) => Some(Ok(price)),
@@ -272,9 +266,8 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<BestBidAsk>>> {
-        let stream = self
-            .inner
-            .get_or_create_channel(ChannelType::Market)?
+        let resources = self.inner.get_or_create_channel(ChannelType::Market)?;
+        let stream = resources
             .subscriptions
             .subscribe_market_with_options(asset_ids, true)?;
 
@@ -292,9 +285,8 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<NewMarket>>> {
-        let stream = self
-            .inner
-            .get_or_create_channel(ChannelType::Market)?
+        let resources = self.inner.get_or_create_channel(ChannelType::Market)?;
+        let stream = resources
             .subscriptions
             .subscribe_market_with_options(asset_ids, true)?;
 
@@ -312,9 +304,8 @@ impl<S: State> Client<S> {
         &self,
         asset_ids: Vec<U256>,
     ) -> Result<impl Stream<Item = Result<MarketResolved>>> {
-        let stream = self
-            .inner
-            .get_or_create_channel(ChannelType::Market)?
+        let resources = self.inner.get_or_create_channel(ChannelType::Market)?;
+        let stream = resources
             .subscriptions
             .subscribe_market_with_options(asset_ids, true)?;
 
@@ -362,24 +353,10 @@ impl<S: State> Client<S> {
     /// This decrements the reference count for each asset. The server unsubscribe
     /// is only sent when no other subscriptions are using those assets.
     pub fn unsubscribe_orderbook(&self, asset_ids: &[U256]) -> Result<()> {
-        match self.inner.channels.get(&ChannelType::Market) {
-            None => Ok(()),
-            Some(channel) => {
-                channel.subscriptions.unsubscribe_market(asset_ids)?;
-                drop(channel); // Release the Ref before acquiring Entry
-
-                // Atomically check and remove channel if empty
-                if let Entry::Occupied(entry) = self.inner.channels.entry(ChannelType::Market)
-                    && !entry
-                        .get()
-                        .subscriptions
-                        .has_subscriptions(ChannelType::Market)
-                {
-                    entry.remove();
-                }
-                Ok(())
-            }
-        }
+        self.inner
+            .unsubscribe_and_cleanup(ChannelType::Market, |subs| {
+                subs.unsubscribe_market(asset_ids)
+            })
     }
 
     /// Unsubscribe from price changes for specific assets.
@@ -423,8 +400,9 @@ impl<K: AuthKind> Client<Authenticated<K>> {
         &self,
         markets: Vec<B256>,
     ) -> Result<impl Stream<Item = Result<WsMessage>>> {
-        self.inner
-            .get_or_create_channel(ChannelType::User)?
+        let resources = self.inner.get_or_create_channel(ChannelType::User)?;
+
+        resources
             .subscriptions
             .subscribe_user(markets, &self.inner.state.credentials)
     }
@@ -499,24 +477,8 @@ impl<K: AuthKind> Client<Authenticated<K>> {
     /// This decrements the reference count for each market. The server unsubscribe
     /// is only sent when no other subscriptions are using those markets.
     pub fn unsubscribe_user_events(&self, markets: &[B256]) -> Result<()> {
-        match self.inner.channels.get(&ChannelType::User) {
-            None => Ok(()),
-            Some(channel) => {
-                channel.subscriptions.unsubscribe_user(markets)?;
-                drop(channel); // Release the Ref before acquiring Entry
-
-                // Atomically check and remove channel if empty
-                if let Entry::Occupied(entry) = self.inner.channels.entry(ChannelType::User)
-                    && !entry
-                        .get()
-                        .subscriptions
-                        .has_subscriptions(ChannelType::User)
-                {
-                    entry.remove();
-                }
-                Ok(())
-            }
-        }
+        self.inner
+            .unsubscribe_and_cleanup(ChannelType::User, |subs| subs.unsubscribe_user(markets))
     }
 
     /// Unsubscribe from user's order updates for specific markets.
@@ -579,6 +541,32 @@ impl<S: State> ClientInner<S> {
 
     fn channel(&self, channel_type: ChannelType) -> Option<Ref<'_, ChannelType, ChannelResources>> {
         self.channels.get(&channel_type)
+    }
+
+    /// Helper to unsubscribe and remove connection if there are no more subscriptions on this channel
+    fn unsubscribe_and_cleanup<F>(&self, channel_type: ChannelType, unsubscribe_fn: F) -> Result<()>
+    where
+        F: FnOnce(&SubscriptionManager) -> Result<()>,
+    {
+        match self.channels.entry(channel_type) {
+            Entry::Vacant(_) => Ok(()),
+            Entry::Occupied(channel_ref) => {
+                // Clone the Arc to subscriptions while holding the Entry
+                let subs = Arc::clone(&channel_ref.get().subscriptions);
+                drop(channel_ref); // Release Entry immediately
+
+                // Do potentially blocking network I/O without holding the Entry lock
+                unsubscribe_fn(&subs)?;
+
+                // Atomically check and remove channel if empty
+                if let Entry::Occupied(entry) = self.channels.entry(channel_type)
+                    && !entry.get().subscriptions.has_subscriptions(channel_type)
+                {
+                    entry.remove();
+                }
+                Ok(())
+            }
+        }
     }
 }
 
